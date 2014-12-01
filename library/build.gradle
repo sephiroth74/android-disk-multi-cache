@@ -1,4 +1,4 @@
-apply plugin: 'android-library'
+apply plugin: 'com.android.library'
 
 group GROUP
 
@@ -14,7 +14,7 @@ android {
     }
     buildTypes {
         release {
-            runProguard false
+            //runProguard false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
         }
     }
@@ -22,8 +22,8 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
-    compile 'com.jakewharton:disklrucache:+'
-    compile 'org.apache.commons:commons-io:+'
+    compile 'com.jakewharton:disklrucache:2.0.2'
+    compile 'commons-io:commons-io:2.4'
 }
 
 apply from: 'https://raw.githubusercontent.com/sephiroth74/gradle-mvn-push/master/gradle-mvn-push.gradle'
