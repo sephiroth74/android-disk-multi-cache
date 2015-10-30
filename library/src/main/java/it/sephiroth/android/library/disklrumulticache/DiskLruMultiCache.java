@@ -16,285 +16,300 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-@SuppressWarnings("unused")
+@SuppressWarnings ("unused")
 public class DiskLruMultiCache {
-	private static final String LOG_TAG = "DiskLruMultiCache";
+    private static final String LOG_TAG = "DiskLruMultiCache";
+    private static final int APP_VERSION = 2;
+    private static final int APP_VALUES = 2;
+    private static final int ENTRY_INDEX = 0;
+    private static final int METADATA_INDEX = 1;
+    final DiskLruCache mDiskCache;
 
-	private static final int APP_VERSION = 2;
-	private static final int APP_VALUES = 2;
+    public DiskLruMultiCache(Context context, final String name, int maxSize) throws IOException {
+        File dir = getCacheDir(context, name);
+        mDiskCache = DiskLruCache.open(dir, APP_VERSION, APP_VALUES, maxSize);
+    }
 
-	private static final int ENTRY_INDEX = 0;
-	private static final int METADATA_INDEX = 1;
+    public DiskLruMultiCache(Context context, final File dir, int maxSize) throws IOException {
+        mDiskCache = DiskLruCache.open(dir, APP_VERSION, APP_VALUES, maxSize);
+    }
 
-	final DiskLruCache mDiskCache;
+    public DiskLruMultiCache(Context context, final String name, int maxSize, int version) throws IOException {
+        File dir = getCacheDir(context, name);
+        mDiskCache = DiskLruCache.open(dir, version, APP_VALUES, maxSize);
+    }
 
-	public DiskLruMultiCache(Context context, final String name, int maxSize) throws IOException {
-		File dir = getCacheDir(context, name);
-		mDiskCache = DiskLruCache.open(dir, APP_VERSION, APP_VALUES, maxSize);
-	}
+    public static File getCacheDir(Context context, final String name) {
+        Log.i(LOG_TAG, "getCacheDir: " + name);
 
-	public DiskLruMultiCache(Context context, final String name, int maxSize, int version) throws IOException {
-		File dir = getCacheDir(context, name);
-		mDiskCache = DiskLruCache.open(dir, version, APP_VALUES, maxSize);
-	}
+        final String storageState = Environment.getExternalStorageState();
+        final File cacheDir;
+        if (Environment.MEDIA_CHECKING.equals(storageState) || Environment.MEDIA_MOUNTED.equals(storageState) ||
+            !DiskUtils.isExternalStorageRemovable()) {
+            cacheDir = DiskUtils.getExternalCacheDir(context);
+        } else {
+            cacheDir = context.getCacheDir();
+        }
 
-	public static File getCacheDir(Context context, final String name) {
-		Log.i(LOG_TAG, "getCacheDir: " + name);
+        Log.i(LOG_TAG, "cacheDir:" + cacheDir.getAbsolutePath());
+        return new File(cacheDir, name);
+    }
 
-		final String storageState = Environment.getExternalStorageState();
-		final File cacheDir;
-		if (Environment.MEDIA_CHECKING.equals(storageState) || Environment.MEDIA_MOUNTED.equals(storageState) ||
-		    ! DiskUtils.isExternalStorageRemovable()) {
-			cacheDir = DiskUtils.getExternalCacheDir(context);
-		}
-		else {
-			cacheDir = context.getCacheDir();
-		}
+    public <K extends Metadata, T extends EntryObject> Entry<K, T> get(
+        final String key, Class<K> metadataClass, Class<T> entryObjectClass) throws DiskLruMultiCacheReadException {
+        DiskLruCache.Snapshot snapshot = null;
 
-		Log.i(LOG_TAG, "cacheDir:" + cacheDir.getAbsolutePath());
-		return new File(cacheDir, name);
-	}
+        try {
+            snapshot = mDiskCache.get(makeKey(key));
+            if (null != snapshot) {
+                K metadata = readMetadata(snapshot, metadataClass);
+                T entry = readEntry(snapshot, entryObjectClass);
+                if (null != entry) {
+                    return new Entry<K, T>(metadata, entry);
+                }
+            }
+        } catch (Exception e) {
+            throw new DiskLruMultiCacheReadException(e);
+        } finally {
+            if (null != snapshot) {
+                snapshot.close();
+            }
+        }
+        return null;
+    }
 
-	public <K extends Metadata, T extends EntryObject> Entry<K, T> get(
-		final String key, Class<K> metadataClass, Class<T> entryObjectClass) throws DiskLruMultiCacheReadException {
-		DiskLruCache.Snapshot snapshot = null;
+    public <K extends Metadata> K getMetadata(
+        final String key, Class<K> metadataClass) throws DiskLruMultiCacheReadException {
+        DiskLruCache.Snapshot snapshot = null;
 
-		try {
-			snapshot = mDiskCache.get(makeKey(key));
-			if (null != snapshot) {
-				K metadata = readMetadata(snapshot, metadataClass);
-				T entry = readEntry(snapshot, entryObjectClass);
-				if (null != entry) {
-					return new Entry<K, T>(metadata, entry);
-				}
-			}
-		} catch (Exception e) {
-			throw new DiskLruMultiCacheReadException(e);
-		} finally {
-			if (null != snapshot) {
-				snapshot.close();
-			}
-		}
-		return null;
-	}
+        try {
+            snapshot = mDiskCache.get(makeKey(key));
+            if (null != snapshot) {
+                return readMetadata(snapshot, metadataClass);
+            }
+        } catch (Exception e) {
+            throw new DiskLruMultiCacheReadException(e);
+        } finally {
+            if (null != snapshot) {
+                snapshot.close();
+            }
+        }
+        return null;
+    }
 
-	public <K extends Metadata> K getMetadata(
-		final String key, Class<K> metadataClass) throws DiskLruMultiCacheReadException {
-		DiskLruCache.Snapshot snapshot = null;
+    public boolean put(final String key, Entry entry) throws IOException {
+        DiskLruCache.Editor editor = null;
+        try {
+            editor = mDiskCache.edit(makeKey(key));
+            if (null == editor) {
+                Log.w(LOG_TAG, "editor is null");
+                return false;
+            }
 
-		try {
-			snapshot = mDiskCache.get(makeKey(key));
-			if (null != snapshot) {
-				return readMetadata(snapshot, metadataClass);
-			}
-		} catch (Exception e) {
-			throw new DiskLruMultiCacheReadException(e);
-		} finally {
-			if (null != snapshot) {
-				snapshot.close();
-			}
-		}
-		return null;
-	}
+            writeMetadata(editor, entry.getMetadata());
 
-	public boolean put(final String key, Entry entry) throws IOException {
-		DiskLruCache.Editor editor = null;
-		try {
-			editor = mDiskCache.edit(makeKey(key));
-			if (null == editor) {
-				Log.w(LOG_TAG, "editor is null");
-				return false;
-			}
+            try {
+                write(editor, entry);
+                mDiskCache.flush();
+                editor.commit();
+            } catch (IOException e) {
+                Log.w(LOG_TAG, "failed to write entry");
+                editor.abort();
+            }
 
-			writeMetadata(editor, entry.getMetadata());
+        } catch (IOException e) {
+            e.printStackTrace();
 
-			try {
-				write(editor, entry);
-				mDiskCache.flush();
-				editor.commit();
-			} catch (IOException e) {
-				Log.w(LOG_TAG, "failed to write entry");
-				editor.abort();
-			}
+            try {
+                if (null != editor) {
+                    editor.abort();
+                }
+            } catch (IOException e1) {
+                Log.w(LOG_TAG, "abort failed", e1);
+            }
+        }
+        return false;
+    }
 
-		} catch (IOException e) {
-			e.printStackTrace();
+    private void write(final DiskLruCache.Editor editor, Entry entry) throws IOException {
+        OutputStream out = null;
 
-			try {
-				if (null != editor) {
-					editor.abort();
-				}
-			} catch (IOException e1) {
-				Log.w(LOG_TAG, "abort failed", e1);
-			}
-		}
-		return false;
-	}
+        try {
+            out = new BufferedOutputStream(editor.newOutputStream(ENTRY_INDEX), DiskUtils.IO_BUFFER_SIZE);
+            entry.getValue().write(out);
+        } finally {
+            if (null != out) {
+                IOUtils.closeQuietly(out);
+            }
+        }
+    }
 
-	private void write(final DiskLruCache.Editor editor, Entry entry) throws IOException {
-		OutputStream out = null;
+    private <T extends EntryObject> T readEntry(DiskLruCache.Snapshot snapshot, Class<T> entryClass)
+        throws IOException, IllegalAccessException, InstantiationException {
+        InputStream stream = snapshot.getInputStream(ENTRY_INDEX);
+        T entry = entryClass.newInstance();
+        entry.read(stream);
+        return entry;
+    }
 
-		try {
-			out = new BufferedOutputStream(editor.newOutputStream(ENTRY_INDEX), DiskUtils.IO_BUFFER_SIZE);
-			entry.getValue().write(out);
-		} finally {
-			if (null != out) {
-				IOUtils.closeQuietly(out);
-			}
-		}
-	}
+    private <K extends Metadata> K readMetadata(DiskLruCache.Snapshot snapshot, Class<K> metadataClass)
+        throws IOException, ClassNotFoundException, IllegalAccessException, InstantiationException {
+        InputStream input = null;
+        Parcel parcel = null;
+        try {
+            input = snapshot.getInputStream(METADATA_INDEX);
+            byte[] bytes = IOUtils.toByteArray(input);
 
-	private <T extends EntryObject> T readEntry(DiskLruCache.Snapshot snapshot, Class<T> entryClass)
-		throws IOException, IllegalAccessException, InstantiationException {
-		InputStream stream = snapshot.getInputStream(ENTRY_INDEX);
-		T entry = entryClass.newInstance();
-		entry.read(stream);
-		return entry;
-	}
+            parcel = Parcel.obtain();
+            parcel.unmarshall(bytes, 0, bytes.length);
+            parcel.setDataPosition(0);
 
-	private <K extends Metadata> K readMetadata(DiskLruCache.Snapshot snapshot, Class<K> metadataClass)
-		throws IOException, ClassNotFoundException, IllegalAccessException, InstantiationException {
-		InputStream input = null;
-		Parcel parcel = null;
-		try {
-			input = snapshot.getInputStream(METADATA_INDEX);
-			byte[] bytes = IOUtils.toByteArray(input);
+            if (null != metadataClass) {
+                K metadata = metadataClass.newInstance();
+                metadata.readFromParcel(parcel);
+                return metadata;
+            }
 
-			parcel = Parcel.obtain();
-			parcel.unmarshall(bytes, 0, bytes.length);
-			parcel.setDataPosition(0);
+        } finally {
+            if (null != input) {
+                IOUtils.closeQuietly(input);
+            }
 
-			if (null != metadataClass) {
-				K metadata = metadataClass.newInstance();
-				metadata.readFromParcel(parcel);
-				return metadata;
-			}
+            if (null != parcel) {
+                parcel.recycle();
+            }
+        }
+        return null;
+    }
 
-		} finally {
-			if (null != input) {
-				IOUtils.closeQuietly(input);
-			}
+    private void writeMetadata(
+        DiskLruCache.Editor editor, Metadata metadata) throws IOException {
+        OutputStream output = null;
+        try {
+            final Parcel parcel = Parcel.obtain();
+            if (null != metadata) {
+                metadata.writeToParcel(parcel, 0);
+            }
+            byte[] bytes = parcel.marshall();
+            parcel.recycle();
 
-			if (null != parcel) {
-				parcel.recycle();
-			}
-		}
-		return null;
-	}
+            output = editor.newOutputStream(METADATA_INDEX);
+            output.write(bytes);
 
-	private void writeMetadata(
-		DiskLruCache.Editor editor, Metadata metadata) throws IOException {
-		OutputStream output = null;
-		try {
-			final Parcel parcel = Parcel.obtain();
-			if (null != metadata) {
-				metadata.writeToParcel(parcel, 0);
-			}
-			byte[] bytes = parcel.marshall();
-			parcel.recycle();
+        } finally {
+            if (null != output) {
+                IOUtils.closeQuietly(output);
+            }
+        }
+    }
 
-			output = editor.newOutputStream(METADATA_INDEX);
-			output.write(bytes);
+    public long size() {
+        return mDiskCache.size();
+    }
 
-		} finally {
-			if (null != output) {
-				IOUtils.closeQuietly(output);
-			}
-		}
-	}
+    public void remove(final String key) throws IOException {
+        // Log.i( LOG_TAG, "remove: " + key );
+        mDiskCache.remove(makeKey(key));
+    }
 
-	public long size() {
-		return mDiskCache.size();
-	}
+    public boolean containsKey(String key) {
+        // Log.i( LOG_TAG, "containsKey: " + key );
 
-	public void remove(final String key) throws IOException {
-		// Log.i( LOG_TAG, "remove: " + key );
-		mDiskCache.remove(makeKey(key));
-	}
+        DiskLruCache.Snapshot snapshot = null;
+        try {
+            snapshot = mDiskCache.get(makeKey(key));
+            return snapshot != null;
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (snapshot != null) {
+                snapshot.close();
+            }
+        }
 
-	public boolean containsKey(String key) {
-		// Log.i( LOG_TAG, "containsKey: " + key );
+        return false;
+    }
 
-		DiskLruCache.Snapshot snapshot = null;
-		try {
-			snapshot = mDiskCache.get(makeKey(key));
-			return snapshot != null;
-		} catch (IOException e) {
-			e.printStackTrace();
-		} finally {
-			if (snapshot != null) {
-				snapshot.close();
-			}
-		}
+    public long getMaxSize() {
+        return mDiskCache.getMaxSize();
+    }
 
-		return false;
-	}
+    public boolean isClosed() {
+        return mDiskCache.isClosed();
+    }
 
-	public long getMaxSize() {
-		return mDiskCache.getMaxSize();
-	}
+    public synchronized void close() throws IOException {
+        Log.i(LOG_TAG, "close");
+        mDiskCache.close();
+    }
 
-	public boolean isClosed() {
-		return mDiskCache.isClosed();
-	}
+    public synchronized void delete() throws IOException {
+        Log.i(LOG_TAG, "delete");
+        mDiskCache.delete();
+    }
 
-	public synchronized void close() throws IOException {
-		Log.i(LOG_TAG, "close");
-		mDiskCache.close();
-	}
+    public File getDirectory() {
+        return mDiskCache.getDirectory();
+    }
 
-	public synchronized void delete() throws IOException {
-		Log.i(LOG_TAG, "delete");
-		mDiskCache.delete();
-	}
+    private String makeKey(final String key) {
+        return DigestUtils.md5Hex(key).toLowerCase();
+    }
 
-	public File getDirectory() {
-		return mDiskCache.getDirectory();
-	}
+    public static abstract class EntryObject {
+        public EntryObject() {}
 
-	private String makeKey(final String key) {
-		return DigestUtils.md5Hex(key).toLowerCase();
-	}
+        public abstract void read(InputStream stream) throws IOException;
 
-	public static abstract class EntryObject {
-		public EntryObject() {}
+        public abstract void write(OutputStream out) throws IOException;
+    }
 
-		public abstract void read(InputStream stream) throws IOException;
+    public static class Metadata implements Parcelable {
+        public Metadata() { }
 
-		public abstract void write(OutputStream out) throws IOException;
-	}
+        public Metadata(Parcel in) { }
 
-	public static class Metadata implements Parcelable {
+        public static final Creator<Metadata> CREATOR = new Creator<Metadata>() {
+            @Override
+            public Metadata createFromParcel(Parcel in) {
+                return new Metadata(in);
+            }
 
-		@Override
-		public int describeContents() {
-			return 0;
-		}
+            @Override
+            public Metadata[] newArray(int size) {
+                return new Metadata[size];
+            }
+        };
 
-		@Override
-		public void writeToParcel(final Parcel dest, final int flags) {
-		}
+        @Override
+        public int describeContents() {
+            return 0;
+        }
 
-		public void readFromParcel(final Parcel in) {
+        @Override
+        public void writeToParcel(final Parcel dest, final int flags) {
+        }
 
-		}
-	}
+        public void readFromParcel(final Parcel in) {
 
-	public static final class Entry<K extends Metadata, T extends EntryObject> {
-		private final T object;
-		private final K metadata;
+        }
+    }
 
-		public Entry(K metadata, T object) {
-			this.object = object;
-			this.metadata = metadata;
-		}
+    public static final class Entry<K extends Metadata, T extends EntryObject> {
+        private final T object;
+        private final K metadata;
 
-		public T getValue() {
-			return object;
-		}
+        public Entry(K metadata, T object) {
+            this.object = object;
+            this.metadata = metadata;
+        }
 
-		public K getMetadata() {
-			return metadata;
-		}
-	}
+        public T getValue() {
+            return object;
+        }
+
+        public K getMetadata() {
+            return metadata;
+        }
+    }
 }
