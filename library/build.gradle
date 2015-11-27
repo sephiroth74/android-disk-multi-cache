@@ -12,12 +12,6 @@ android {
         versionCode 1
         versionName VERSION_NAME
     }
-    buildTypes {
-        release {
-            //runProguard false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
-        }
-    }
 }
 
 dependencies {
