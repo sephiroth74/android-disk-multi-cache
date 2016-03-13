@@ -14,6 +14,7 @@ android {
     }
 
     lintOptions {
+        abortOnError false
         ignore "AppLinksAutoVerifyError", "AppLinksAutoVerifyWarning", "BackButton", "EasterEgg", "GoogleAppIndexingApiWarning"
     }
 }
