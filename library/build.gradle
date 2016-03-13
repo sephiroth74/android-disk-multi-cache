@@ -12,6 +12,10 @@ android {
         versionCode 1
         versionName VERSION_NAME
     }
+
+    lintOptions {
+        ignore "AppLinksAutoVerifyError", "AppLinksAutoVerifyWarning", "BackButton", "EasterEgg", "GoogleAppIndexingApiWarning"
+    }
 }
 
 dependencies {

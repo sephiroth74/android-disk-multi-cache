@@ -262,6 +262,7 @@ public class DiskLruMultiCache {
         return mDiskCache.getDirectory();
     }
 
+    @SuppressWarnings ("DefaultLocale")
     private String makeKey(final String key) {
         return DigestUtils.md5Hex(key).toLowerCase();
     }
