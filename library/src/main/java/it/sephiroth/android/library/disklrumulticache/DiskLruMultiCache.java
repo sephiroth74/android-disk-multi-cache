@@ -19,28 +19,33 @@ import java.io.OutputStream;
 @SuppressWarnings ("unused")
 public class DiskLruMultiCache {
     private static final String LOG_TAG = "DiskLruMultiCache";
+    public static boolean DEBUG = false;
+
     private static final int APP_VERSION = 2;
     private static final int APP_VALUES = 2;
     private static final int ENTRY_INDEX = 0;
     private static final int METADATA_INDEX = 1;
-    final DiskLruCache mDiskCache;
 
-    public DiskLruMultiCache(Context context, final String name, int maxSize) throws IOException {
+    private final DiskLruCache mDiskCache;
+
+    public DiskLruMultiCache(Context context, final String name, long maxSize) throws IOException {
         File dir = getCacheDir(context, name);
         mDiskCache = DiskLruCache.open(dir, APP_VERSION, APP_VALUES, maxSize);
     }
 
-    public DiskLruMultiCache(Context context, final File dir, int maxSize) throws IOException {
+    public DiskLruMultiCache(final File dir, long maxSize) throws IOException {
         mDiskCache = DiskLruCache.open(dir, APP_VERSION, APP_VALUES, maxSize);
     }
 
-    public DiskLruMultiCache(Context context, final String name, int maxSize, int version) throws IOException {
+    public DiskLruMultiCache(Context context, final String name, long maxSize, int version) throws IOException {
         File dir = getCacheDir(context, name);
         mDiskCache = DiskLruCache.open(dir, version, APP_VALUES, maxSize);
     }
 
     public static File getCacheDir(Context context, final String name) {
-        Log.i(LOG_TAG, "getCacheDir: " + name);
+        if (DEBUG) {
+            Log.i(LOG_TAG, "getCacheDir: " + name);
+        }
 
         final String storageState = Environment.getExternalStorageState();
         final File cacheDir;
@@ -51,7 +56,9 @@ public class DiskLruMultiCache {
             cacheDir = context.getCacheDir();
         }
 
-        Log.i(LOG_TAG, "cacheDir:" + cacheDir.getAbsolutePath());
+        if (DEBUG) {
+            Log.i(LOG_TAG, "cacheDir:" + cacheDir.getAbsolutePath());
+        }
         return new File(cacheDir, name);
     }
 
@@ -65,7 +72,7 @@ public class DiskLruMultiCache {
                 K metadata = readMetadata(snapshot, metadataClass);
                 T entry = readEntry(snapshot, entryObjectClass);
                 if (null != entry) {
-                    return new Entry<K, T>(metadata, entry);
+                    return new Entry<>(metadata, entry);
                 }
             }
         } catch (Exception e) {
@@ -102,7 +109,9 @@ public class DiskLruMultiCache {
         try {
             editor = mDiskCache.edit(makeKey(key));
             if (null == editor) {
-                Log.w(LOG_TAG, "editor is null");
+                if (DEBUG) {
+                    Log.w(LOG_TAG, "editor is null");
+                }
                 return false;
             }
 
@@ -208,13 +217,10 @@ public class DiskLruMultiCache {
     }
 
     public void remove(final String key) throws IOException {
-        // Log.i( LOG_TAG, "remove: " + key );
         mDiskCache.remove(makeKey(key));
     }
 
     public boolean containsKey(String key) {
-        // Log.i( LOG_TAG, "containsKey: " + key );
-
         DiskLruCache.Snapshot snapshot = null;
         try {
             snapshot = mDiskCache.get(makeKey(key));
@@ -239,12 +245,16 @@ public class DiskLruMultiCache {
     }
 
     public synchronized void close() throws IOException {
-        Log.i(LOG_TAG, "close");
+        if (DEBUG) {
+            Log.i(LOG_TAG, "close");
+        }
         mDiskCache.close();
     }
 
     public synchronized void delete() throws IOException {
-        Log.i(LOG_TAG, "delete");
+        if (DEBUG) {
+            Log.i(LOG_TAG, "delete");
+        }
         mDiskCache.delete();
     }
 
