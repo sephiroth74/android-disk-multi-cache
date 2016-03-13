@@ -20,181 +20,179 @@ import java.io.OutputStream;
 
 import it.sephiroth.android.library.disklrumulticache.DiskLruMultiCache;
 
-
 public class MainActivity extends ActionBarActivity implements View.OnClickListener {
 
-	private static final String LOG_TAG = "MainActivity";
-	Button button;
+    private static final String LOG_TAG = "MainActivity";
+    Button button;
 
-	DiskLruMultiCache mCache;
+    DiskLruMultiCache mCache;
 
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		setContentView(R.layout.activity_main);
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
 
-		button = (Button) findViewById(R.id.button);
-		button.setOnClickListener(this);
+        button = (Button) findViewById(R.id.button);
+        button.setOnClickListener(this);
 
-		try {
-			mCache = new DiskLruMultiCache(this, "test", 1024 * 1024 * 10, 3);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
+        try {
+            mCache = new DiskLruMultiCache(this, "test", 1024 * 1024 * 10, 3);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        // Inflate the menu; this adds items to the action bar if it is present.
+        getMenuInflater().inflate(R.menu.main, menu);
+        return true;
+    }
 
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		// Inflate the menu; this adds items to the action bar if it is present.
-		getMenuInflater().inflate(R.menu.main, menu);
-		return true;
-	}
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        // Handle action bar item clicks here. The action bar will
+        // automatically handle clicks on the Home/Up button, so long
+        // as you specify a parent activity in AndroidManifest.xml.
+        int id = item.getItemId();
+        if (id == R.id.action_settings) {
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
 
-	@Override
-	public boolean onOptionsItemSelected(MenuItem item) {
-		// Handle action bar item clicks here. The action bar will
-		// automatically handle clicks on the Home/Up button, so long
-		// as you specify a parent activity in AndroidManifest.xml.
-		int id = item.getItemId();
-		if (id == R.id.action_settings) {
-			return true;
-		}
-		return super.onOptionsItemSelected(item);
-	}
+    @Override
+    public void onClick(final View v) {
 
-	@Override
-	public void onClick(final View v) {
+        final String url = "http://dev003.aviary.local:2347/streams/editorial/android";
+        new CustomTask().execute(url);
+    }
 
-		final String url = "http://dev003.aviary.local:2347/streams/editorial/android";
-		new CustomTask().execute(url);
-	}
+    class CustomTask extends AsyncTask<String, Void, String> {
 
-	class CustomTask extends AsyncTask<String, Void, String> {
+        @Override
+        protected String doInBackground(final String... params) {
+            final String url = params[0];
 
-		@Override
-		protected String doInBackground(final String... params) {
-			final String url = params[0];
+            if (mCache.containsKey(url)) {
+                Log.d(LOG_TAG, "diskCache contains key!");
 
-			if (mCache.containsKey(url)) {
-				Log.d(LOG_TAG, "diskCache contains key!");
+                try {
+                    JsonMetadata metadata = mCache.getMetadata(url, JsonMetadata.class);
+                    Log.d(LOG_TAG, "metadata: " + metadata.fileTime);
 
+                    long diff = (System.currentTimeMillis() - metadata.fileTime) / 1000;
+                    Log.d(LOG_TAG, "diff: " + diff);
 
-				try {
-					JsonMetadata metadata = mCache.getMetadata(url, JsonMetadata.class);
-					Log.d(LOG_TAG, "metadata: " + metadata.fileTime);
+                    if (diff < 60) {
+                        DiskLruMultiCache.Entry<JsonMetadata, JsonEntry> entry =
+                            mCache.get(url, JsonMetadata.class, JsonEntry.class);
 
-					long diff = (System.currentTimeMillis() - metadata.fileTime) / 1000;
-					Log.d(LOG_TAG, "diff: " + diff);
+                        if (null != entry && !TextUtils.isEmpty(entry.getValue().string)) {
+                            return entry.getValue().string;
+                        }
+                    } else {
+                        Log.w(LOG_TAG, "too much time passed... skip cache");
+                        mCache.remove(url);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
 
-					if (diff < 60) {
-						DiskLruMultiCache.Entry<JsonMetadata, JsonEntry> entry =
-							mCache.get(url, JsonMetadata.class, JsonEntry.class);
+            InputStream stream;
+            try {
+                stream = Utils.download(url);
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }
 
-						if (null != entry && ! TextUtils.isEmpty(entry.getValue().string)) {
-							return entry.getValue().string;
-						}
-					} else {
-						Log.w(LOG_TAG, "too much time passed... skip cache");
-						mCache.remove(url);
-					}
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
+            Log.d(LOG_TAG, "stream: " + stream);
 
-			InputStream stream;
-			try {
-				stream = Utils.download(url, null);
-			} catch (IOException e) {
-				e.printStackTrace();
-				return null;
-			}
+            String string = null;
+            try {
+                string = IOUtils.toString(stream);
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                IOUtils.closeQuietly(stream);
+            }
 
-			Log.d(LOG_TAG, "stream: " + stream);
+            if (null != string) {
+                try {
+                    JsonEntry jsonEntry = new JsonEntry(string);
+                    JsonMetadata metadata = new JsonMetadata(System.currentTimeMillis());
+                    final DiskLruMultiCache.Entry<JsonMetadata, JsonEntry> entry = new DiskLruMultiCache.Entry(
+                        metadata,
+                        jsonEntry
+                    );
+                    mCache.put(url, entry);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
 
-			String string = null;
-			try {
-				string = IOUtils.toString(stream);
-			} catch (IOException e) {
-				e.printStackTrace();
-			} finally {
-				IOUtils.closeQuietly(stream);
-			}
+            return string;
+        }
 
-			if (null != string) {
-				try {
-					JsonEntry jsonEntry = new JsonEntry(string);
-					JsonMetadata metadata = new JsonMetadata(System.currentTimeMillis());
-					final DiskLruMultiCache.Entry<JsonMetadata, JsonEntry> entry = new DiskLruMultiCache.Entry(metadata,
-					                                                                                           jsonEntry);
-					mCache.put(url, entry);
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
+        @Override
+        protected void onPostExecute(final String s) {
+            super.onPostExecute(s);
 
-			return string;
-		}
+            Log.d(LOG_TAG, "result: " + s);
+        }
+    }
 
-		@Override
-		protected void onPostExecute(final String s) {
-			super.onPostExecute(s);
+    public static class JsonEntry extends DiskLruMultiCache.EntryObject {
+        String string;
 
-			Log.d(LOG_TAG, "result: " + s);
-		}
-	}
+        public JsonEntry() {
 
-	public static class JsonEntry extends DiskLruMultiCache.EntryObject {
-		String string;
+        }
 
-		public JsonEntry() {
+        public JsonEntry(String string) throws JSONException {
+            this.string = string;
+        }
 
-		}
+        @Override
+        public void read(final InputStream stream) throws IOException {
+            Log.i(LOG_TAG, "JsonEntry::read");
+            string = IOUtils.toString(stream);
+        }
 
-		public JsonEntry(String string) throws JSONException {
-			this.string = string;
-		}
+        @Override
+        public void write(final OutputStream out) throws IOException {
+            Log.i(LOG_TAG, "JsonEntry::write");
+            if (null != string) {
+                IOUtils.write(string, out);
+            } else {
+                Log.e(LOG_TAG, "string is null!!");
+            }
+        }
+    }
 
-		@Override
-		public void read(final InputStream stream) throws IOException {
-			Log.i(LOG_TAG, "JsonEntry::read");
-			string = IOUtils.toString(stream);
-		}
+    public static class JsonMetadata extends DiskLruMultiCache.Metadata {
+        long fileTime;
 
-		@Override
-		public void write(final OutputStream out) throws IOException {
-			Log.i(LOG_TAG, "JsonEntry::write");
-			if (null != string) {
-				IOUtils.write(string, out);
-			}
-			else {
-				Log.e(LOG_TAG, "string is null!!");
-			}
-		}
-	}
+        public JsonMetadata() {
+            super();
+        }
 
-	public static class JsonMetadata extends DiskLruMultiCache.Metadata {
-		long fileTime;
+        public JsonMetadata(long time) {
+            fileTime = time;
+        }
 
-		public JsonMetadata() {
-			super();
-		}
+        @Override
+        public void writeToParcel(final Parcel dest, final int flags) {
+            Log.d(LOG_TAG, "JsonMetadata::write: " + fileTime);
+            dest.writeLong(fileTime);
+        }
 
-		public JsonMetadata(long time) {
-			fileTime = time;
-		}
-
-		@Override
-		public void writeToParcel(final Parcel dest, final int flags) {
-			Log.d(LOG_TAG, "JsonMetadata::write: " + fileTime);
-			dest.writeLong(fileTime);
-		}
-
-		@Override
-		public void readFromParcel(final Parcel in) {
-			fileTime = in.readLong();
-			Log.d(LOG_TAG, "JsonMetadata::fileTime: " + fileTime);
-		}
-	}
+        @Override
+        public void readFromParcel(final Parcel in) {
+            fileTime = in.readLong();
+            Log.d(LOG_TAG, "JsonMetadata::fileTime: " + fileTime);
+        }
+    }
 }

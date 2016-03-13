@@ -1,46 +1,30 @@
 language: android
 
-branches:
-  only:
-    - master
-
-notifications:
-  email: true
-
-before_install:
-
-  # environment info
-  - gradle -v
-  - uname -a
-
-  # for gradle output style
-  - export TERM=dumb
-
-  # just to test gradle version, against our provided one
-  - gradle -v
-
-  # Install required components.
-  # For a full list, run `android list sdk -a --extended`
-  - echo yes | android update sdk --filter platform-tools --no-ui --force > /dev/null
-  - echo yes | android update sdk --all --filter build-tools-19.1.0 --no-ui --force > /dev/null
-  - echo yes | android update sdk --filter android-19 --no-ui --force > /dev/null
-  - echo yes | android update sdk --filter extra-android-m2repository --no-ui --force > /dev/null
-
-  # Otherwise
-  #- echo yes | android update sdk -t tools,platform-tools,extra-android-support,extra-android-m2repository,android-19 --force --no-ui
+jdk:
+    - oraclejdk8
 
 android:
   components:
-    - build-tools-19.1.0
-    - android-19
-    - sysimg-19
+    - tools
+    - build-tools-23.0.2
+    - android-23
+    - extra-android-m2repository
+    - extra-google-m2repository
     - extra-android-support
-  licenses:
-    - android-sdk-license-bcbbd656
-    - '.*intel.+'
 
+notifications:
+    email:
+        - alessandro.crugnola@gmail.com
 
-# Let's try to build...
-install: gradle clean build
+cache: false
+sudo: false
 
-script: gradle check
+install:
+    # Ensure Gradle wrapper is executable, download wrapper and show version
+    - chmod +x ./gradlew; ls -l gradlew; ./gradlew wrapper -v
+
+    # Download and show android dependencies
+    - ./gradlew androidDependencies
+
+script:
+    - ./gradlew library:check library:assemble
